@@ -30,6 +30,7 @@ def download_file(url, destination):
                 print(f'\r[{"=" * done}{" " * (50-done)}] {downloaded}/{total_size} bytes', end='')
     print()  # newline after progress
 
+
 def prepare_trashnet_dataset():
     """
     Prepare TrashNet dataset - but i skipped download cuz its manual
@@ -56,6 +57,60 @@ def prepare_trashnet_dataset():
     
     return True
 
+def merge_datasets(trashnet_dir, garbage_dir, combined_dir):
+    """
+    Merge TrashNet and Garbage V2 datasets - copy images per class to combined
+    Maps Garbage V2 classes to TrashNet: battery/biological/clothes/e-waste/shoes -> trash
+    Avoids duplicates by skipping same filename
+    """
+    print(f'Merging datasets from {trashnet_dir} and {garbage_dir} into {combined_dir}...')
+    
+    combined_path = Path(combined_dir)
+    combined_path.mkdir(parents=True, exist_ok=True)
+    
+    classes = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
+    
+    # Mapping for Garbage V2 classes to our classes
+    garbage_mapping = {
+        'cardboard': 'cardboard',
+        'glass': 'glass',
+        'metal': 'metal',
+        'paper': 'paper',
+        'plastic': 'plastic',
+        'battery': 'trash',
+        'biological': 'trash',
+        'clothes': 'trash',
+        'e-waste': 'trash',
+        'shoes': 'trash'
+    }
+    
+    for cls in classes:
+        cls_dir = combined_path / cls
+        cls_dir.mkdir(exist_ok=True)
+        
+        # Copy from TrashNet (direct match)
+        trash_cls = Path(trashnet_dir) / cls
+        if trash_cls.exists():
+            for img in trash_cls.glob('*.jpg'):
+                dest = cls_dir / img.name
+                if not dest.exists():
+                    shutil.copy2(img, dest)
+        
+        # Copy from Garbage V2 (map classes)
+        for g_class, target_cls in garbage_mapping.items():
+            if target_cls == cls:
+                garbage_cls = Path(garbage_dir) / g_class
+                if garbage_cls.exists():
+                    for img in garbage_cls.glob('*.jpg'):
+                        dest = cls_dir / img.name
+                        if not dest.exists():
+                            shutil.copy2(img, dest)
+        
+        print(f'{cls}: {len(list(cls_dir.glob("*.jpg")))} images')
+    
+    print(f'Merged dataset ready at {combined_dir} - all non-matching Garbage classes mapped to trash')
+    return True
+
 def prepare_custom_dataset(source_dir):
     """
     Prepare custom dataset from folder - if you have your own images
@@ -78,16 +133,13 @@ def prepare_custom_dataset(source_dir):
     print(f'Found {len(classes)} classes: {[c.name for c in classes]}')
     return True
 
-def split_dataset(source_dir, output_dir, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+def split_dataset(source_dir, output_dir, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
     """
-    Split dataset into train, validation, and test sets
-    
+    Split dataset into train val test - using sklearn split
     Args:
-        source_dir: Source directory with class folders
-        output_dir: Output directory for split dataset
-        train_ratio: Ratio for training set
-        val_ratio: Ratio for validation set
-        test_ratio: Ratio for test set
+        source_dir: where the class folders are
+        output_dir: where to put the splits
+        ratios for each
     """
     print(f'\nSplitting dataset...')
     print(f'Train: {train_ratio*100}%, Val: {val_ratio*100}%, Test: {test_ratio*100}%')
@@ -95,11 +147,11 @@ def split_dataset(source_dir, output_dir, train_ratio=0.7, val_ratio=0.15, test_
     source_path = Path(source_dir)
     output_path = Path(output_dir)
     
-    # Create output directories
+    # Make output dirs
     for split in ['train', 'val', 'test']:
         (output_path / split).mkdir(parents=True, exist_ok=True)
     
-    # Process each class
+    # Process classes
     class_stats = {}
     
     for class_dir in source_path.iterdir():
@@ -109,19 +161,19 @@ def split_dataset(source_dir, output_dir, train_ratio=0.7, val_ratio=0.15, test_
         class_name = class_dir.name
         print(f'\nProcessing class: {class_name}')
         
-        # Get all images
+        # Find images
         images = []
         for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
             images.extend(class_dir.glob(ext))
             images.extend(class_dir.glob(ext.upper()))
         
         if len(images) == 0:
-            print(f'  No images found in {class_name}')
+            print(f'  No images in {class_name} - skip')
             continue
         
         print(f'  Found {len(images)} images')
         
-        # Split images
+        # Split em
         train_imgs, temp_imgs = train_test_split(images, train_size=train_ratio, random_state=42)
         val_imgs, test_imgs = train_test_split(temp_imgs, 
                                                train_size=val_ratio/(val_ratio+test_ratio), 
@@ -134,7 +186,7 @@ def split_dataset(source_dir, output_dir, train_ratio=0.7, val_ratio=0.15, test_
             'test': len(test_imgs)
         }
         
-        # Copy images to respective directories
+        # Copy to splits
         for split, imgs in [('train', train_imgs), ('val', val_imgs), ('test', test_imgs)]:
             split_class_dir = output_path / split / class_name
             split_class_dir.mkdir(parents=True, exist_ok=True)
@@ -145,12 +197,12 @@ def split_dataset(source_dir, output_dir, train_ratio=0.7, val_ratio=0.15, test_
         
         print(f'  Train: {len(train_imgs)}, Val: {len(val_imgs)}, Test: {len(test_imgs)}')
     
-    # Save statistics
+    # Save stats
     stats_file = output_path / 'dataset_stats.json'
     with open(stats_file, 'w') as f:
         json.dump(class_stats, f, indent=4)
     
-    # Save class names
+    # Class info
     class_names = sorted(class_stats.keys())
     class_info = {
         'class_names': class_names,
@@ -193,23 +245,32 @@ def create_sample_dataset():
 
 def main():
     print('='*60)
-    print('Dataset Preparation Script - Auto mode for TrashNet')
+    print('Dataset Preparation Script - Auto mode for TrashNet + Garbage V2')
     print('='*60)
     
-    source_dir = 'data/dataset-resized'
+    trashnet_dir = 'data/dataset-resized'
+    garbage_dir = 'data/garbage-v2'
+    combined_dir = 'data/combined'
     output_dir = 'data/materials'
     
-    if Path(source_dir).exists():
-        print(f'Using existing dataset at: {source_dir}')
-        print(f'Splitting into: {output_dir}')
-        success = split_dataset(source_dir, output_dir, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1)
-        if success:
-            print(f'\nDataset prepared successfully at {output_dir}! Ready for training')
-        else:
-            print('Dataset preparation failed - check the logs')
+    # Merge if garbage v2 exists
+    if Path(garbage_dir).exists():
+        print(f'Merging Garbage V2 with TrashNet...')
+        merge_datasets(trashnet_dir, garbage_dir, combined_dir)
+        source_dir = combined_dir
+    elif Path(trashnet_dir).exists():
+        print(f'Using only TrashNet at: {trashnet_dir}')
+        source_dir = trashnet_dir
     else:
-        print(f'Dataset not found at {source_dir}. Put TrashNet resized there or edit the code.')
-        print('For sample, call create_sample_dataset() manually')
+        print('No dataset found. Download TrashNet to data/dataset-resized or Garbage V2 to data/garbage-v2.')
+        return
+    
+    print(f'Splitting {source_dir} into: {output_dir}')
+    success = split_dataset(source_dir, output_dir, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1)
+    if success:
+        print(f'\nDataset prepared successfully at {output_dir}! Larger dataset for better training.')
+    else:
+        print('Dataset preparation failed - check the logs')
 
 if __name__ == '__main__':
     main()

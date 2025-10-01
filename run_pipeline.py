@@ -1,6 +1,7 @@
 """
-Complete Pipeline Runner
-Runs the entire pipeline from data preparation to simulation
+Complete Pipeline Runner - runs everything in one go
+From data prep to simulation, skips if already done
+Added checks to make it easy
 """
 
 import os
@@ -10,15 +11,15 @@ import argparse
 from pathlib import Path
 
 class PipelineRunner:
-    """Orchestrates the complete ML pipeline"""
+    """Orchestrates the complete ML pipeline - the main runner class"""
     
     def __init__(self, skip_training=False, skip_export=False):
         self.skip_training = skip_training
         self.skip_export = skip_export
-        self.project_root = Path.cwd()
+        self.project_root = Path.cwd()  # current working dir
         
     def run_command(self, command, description):
-        """Run a shell command and handle errors"""
+        """Run a shell command and handle errors - uses subprocess"""
         print(f"\n{'='*60}")
         print(f"Step: {description}")
         print(f"{'='*60}")
@@ -31,20 +32,20 @@ class PipelineRunner:
                 cwd=self.project_root,
                 text=True
             )
-            print(f"\n✓ {description} completed successfully")
+            print(f"\n✓ {description} completed successfully - good")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"\n✗ {description} failed with error code {e.returncode}")
+            print(f"\n✗ {description} failed with error code {e.returncode} - oops")
             return False
         except Exception as e:
-            print(f"\n✗ {description} failed: {e}")
+            print(f"\n✗ {description} failed: {e} - check why")
             return False
     
     def check_dataset(self):
-        """Check if dataset is prepared"""
+        """Check if dataset is prepared - looks for train folder"""
         train_dir = Path('data/materials/train')
         if not train_dir.exists() or not any(train_dir.iterdir()):
-            print("\n⚠ Dataset not found or empty")
+            print("\n⚠ Dataset not found or empty - need to run prep")
             print("Please prepare the dataset first:")
             print("  python src/prepare_data.py")
             return False
@@ -55,33 +56,33 @@ class PipelineRunner:
             print(f"\n⚠ Only {len(classes)} classes found. Minimum 5 required.")
             return False
         
-        print(f"\n✓ Dataset found with {len(classes)} classes")
+        print(f"\n✓ Dataset found with {len(classes)} classes - ready")
         return True
     
     def check_model(self):
-        """Check if model is trained"""
+        """Check if model is trained - looks for pth file"""
         model_path = Path('models/best_model.pth')
         if not model_path.exists():
-            print("\n⚠ Trained model not found")
+            print("\n⚠ Trained model not found - train first")
             return False
         
-        print("\n✓ Trained model found")
+        print("\n✓ Trained model found - good to go")
         return True
     
     def check_exported_model(self):
-        """Check if model is exported"""
+        """Check if model is exported - onnx or script"""
         onnx_path = Path('models/model.onnx')
         script_path = Path('models/model_scripted.pt')
         
         if not onnx_path.exists() and not script_path.exists():
-            print("\n⚠ Exported model not found")
+            print("\n⚠ Exported model not found - export first")
             return False
         
-        print("\n✓ Exported model found")
+        print("\n✓ Exported model found - ready for inference")
         return True
     
     def prepare_data(self):
-        """Run data preparation"""
+        """Run data preparation - calls the prep script"""
         if not self.check_dataset():
             response = input("\nRun data preparation? (y/n): ").strip().lower()
             if response == 'y':
@@ -95,13 +96,13 @@ class PipelineRunner:
         return True
     
     def train_model(self):
-        """Run model training"""
+        """Run model training - calls train.py"""
         if self.skip_training:
             print("\n⊘ Skipping training (--skip-training flag)")
             return self.check_model()
         
         if not self.check_dataset():
-            print("\n✗ Cannot train: Dataset not prepared")
+            print("\n✗ Cannot train: Dataset not prepared - prep first")
             return False
         
         return self.run_command(
@@ -110,13 +111,13 @@ class PipelineRunner:
         )
     
     def export_model(self):
-        """Export model to ONNX and TorchScript"""
+        """Export model to ONNX and TorchScript - calls export"""
         if self.skip_export:
             print("\n⊘ Skipping export (--skip-export flag)")
             return self.check_exported_model()
         
         if not self.check_model():
-            print("\n✗ Cannot export: Model not trained")
+            print("\n✗ Cannot export: Model not trained - train first")
             return False
         
         return self.run_command(
@@ -125,12 +126,12 @@ class PipelineRunner:
         )
     
     def run_simulation(self, source_dir='data/test_images', interval=1.0):
-        """Run conveyor simulation"""
+        """Run conveyor simulation - the final step"""
         if not self.check_exported_model():
-            print("\n✗ Cannot run simulation: Model not exported")
+            print("\n✗ Cannot run simulation: Model not exported - export first")
             return False
         
-        # Check if test images exist
+        # Check test images
         test_path = Path(source_dir)
         if not test_path.exists():
             print(f"\n⚠ Test images directory not found: {source_dir}")
@@ -145,9 +146,9 @@ class PipelineRunner:
         )
     
     def run_pipeline(self, run_simulation=True, simulation_source='data/test_images'):
-        """Run the complete pipeline"""
+        """Run the complete pipeline - all steps"""
         print("="*60)
-        print("MATERIAL CLASSIFICATION PIPELINE")
+        print("MATERIAL CLASSIFICATION PIPELINE - starting")
         print("="*60)
         print(f"Project Root: {self.project_root}")
         print(f"Skip Training: {self.skip_training}")
@@ -164,21 +165,21 @@ class PipelineRunner:
         if run_simulation:
             steps.append(("Conveyor Simulation", lambda: self.run_simulation(simulation_source)))
         
-        # Execute pipeline
+        # Run steps
         for step_name, step_func in steps:
             success = step_func()
             if not success:
                 print(f"\n{'='*60}")
-                print(f"Pipeline stopped at: {step_name}")
+                print(f"Pipeline stopped at: {step_name} - fix it")
                 print(f"{'='*60}")
                 return False
         
-        # Pipeline completed
+        # Done
         print(f"\n{'='*60}")
-        print("PIPELINE COMPLETED SUCCESSFULLY!")
+        print("PIPELINE COMPLETED SUCCESSFULLY! All good")
         print(f"{'='*60}")
         
-        # Print summary
+        # Summary
         print("\nGenerated Files:")
         if Path('models/best_model.pth').exists():
             print("  ✓ models/best_model.pth")
@@ -202,7 +203,7 @@ class PipelineRunner:
         return True
 
 def main():
-    parser = argparse.ArgumentParser(description='Run the complete ML pipeline')
+    parser = argparse.ArgumentParser(description='Run the complete ML pipeline - easy way to run all')
     parser.add_argument('--skip-training', action='store_true',
                        help='Skip training if model already exists')
     parser.add_argument('--skip-export', action='store_true',
@@ -218,13 +219,13 @@ def main():
     
     args = parser.parse_args()
     
-    # Create pipeline runner
+    # Create runner
     runner = PipelineRunner(
         skip_training=args.skip_training,
         skip_export=args.skip_export
     )
     
-    # Handle specific modes
+    # Specific modes
     if args.prepare_only:
         runner.prepare_data()
         return
@@ -234,7 +235,7 @@ def main():
             runner.train_model()
         return
     
-    # Run full pipeline
+    # Full run
     success = runner.run_pipeline(
         run_simulation=not args.no_simulation,
         simulation_source=args.simulation_source
